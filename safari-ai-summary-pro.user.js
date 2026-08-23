@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Safari AI Summary Pro
 // @namespace    http://tampermonkey.net/
-// @version      2.0.4
+// @version      2.0.5
 // @description  Safari 专用 AI 页面总结工具，Readability 提取正文, 毛玻璃UI, 支持暗黑模式, 模型 API 动态加载
 // @author       Justin Ye
 // @license      MIT
@@ -115,22 +115,31 @@ const DEFAULT_CONFIG = {
 };
 
 const GM = {
-    // 多通道取/存：GM_setValue(旧) → GM.setValue(Tampermonkey v5+) → localStorage(兜底)
-    setValue(k, v) {
-        try { if (typeof GM_setValue !== 'undefined') { GM_setValue(k, v); return; } } catch (e) {}
-        try { if (typeof GM !== 'undefined' && typeof GM.setValue === 'function') { GM.setValue(k, v); return; } } catch (e) {}
+    // 存储双通道：GM(管理器私有存储，跨站点/跨关闭持久) + localStorage(同步兜底)
+    // 管理器存储是异步的(GM.get/set 返回 Promise，Userscripts/Tampermonkey 皆然)，故用 async。
+    async setValue(k, v) {
+        let gmOk = false;
+        try { if (typeof GM_setValue !== 'undefined') { GM_setValue(k, v); gmOk = true; } } catch (e) {}
+        try { if (typeof GM !== 'undefined' && typeof GM.setValue === 'function') { await GM.setValue(k, v); gmOk = true; } } catch (e) {}
         try { localStorage.setItem('saspro_' + k, JSON.stringify(v)); } catch (e) {}
+        return gmOk;
     },
-    getValue(k, d) {
-        try { if (typeof GM_getValue !== 'undefined') return GM_getValue(k, d); } catch (e) {}
-        try { if (typeof GM !== 'undefined' && typeof GM.getValue === 'function') { const g = GM.getValue(k, d); return g; } } catch (e) {}
-        try { const v = localStorage.getItem('saspro_' + k); return v ? JSON.parse(v) : d; } catch (e) {}
+    async getValue(k, d) {
+        // 先读管理器存储(GM.get 异步 / GM_getValue 同步)；失败再读 localStorage；再不行回默认
+        try { if (typeof GM_getValue !== 'undefined') { const v = GM_getValue(k, d); if (v !== undefined && v !== null && v !== d) return v; } } catch (e) {}
+        try { if (typeof GM !== 'undefined' && typeof GM.getValue === 'function') { const v = await GM.getValue(k, d); if (v !== undefined && v !== null && v !== d) return v; } } catch (e) {}
+        try { const v = localStorage.getItem('saspro_' + k); if (v !== null) return JSON.parse(v); } catch (e) {}
         return d;
-    }
+    },
+    
 };
 
+async function loadConfig() {
+    const keys = Object.keys(DEFAULT_CONFIG);
+    const results = await Promise.all(keys.map(k => GM.getValue(k, DEFAULT_CONFIG[k])));
+    keys.forEach((k, i) => { config[k] = results[i]; });
+}
 let config = Object.assign({}, DEFAULT_CONFIG);
-Object.keys(DEFAULT_CONFIG).forEach(k => { config[k] = GM.getValue(k, DEFAULT_CONFIG[k]); });
 
 // ---------- UI 样式 ----------
 const style = document.createElement('style');
@@ -309,13 +318,15 @@ function renderPanel() {
 function openPanel() { renderPanel(); panel.classList.add('show'); isOpen = true; }
 function closePanel() { panel.classList.remove('show'); isOpen = false; }
 
-function saveSettings() {
+async function saveSettings() {
+    const tasks = [];
     ['sas-api-url', 'sas-api-key', 'sas-model', 'sas-prompt', 'sas-theme', 'sas-shortcut'].forEach(id => {
         const val = document.getElementById(id).value;
         const key = { 'sas-api-url': 'apiUrl', 'sas-api-key': 'apiKey', 'sas-model': 'model', 'sas-prompt': 'prompt', 'sas-theme': 'theme', 'sas-shortcut': 'shortcut' }[id];
         config[key] = val;
-        GM.setValue(key, val);
+        tasks.push(GM.setValue(key, val));
     });
+    await Promise.allSettled(tasks);
     applyTheme();
     alert('配置已保存');
 }
@@ -414,4 +425,10 @@ if (typeof GM_registerMenuCommand !== 'undefined') {
 }
 
 // 初始需要触发 renderPanel 的变量存在，但面板在打开时才构建
+
+// 异步加载已保存配置（管理器存储跨关闭持久化）。加载完成后若是面板打开状态，刷新一次填入已存值。
+loadConfig().then(() => {
+    if (typeof renderPanel === 'function' && typeof isOpen !== 'undefined' && isOpen) { try { renderPanel(); } catch (e) {} }
+}).catch(e => console.error('config load error', e));
+
 })();
