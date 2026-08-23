@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Safari AI Summary Pro
 // @namespace    http://tampermonkey.net/
-// @version      2.0.3
+// @version      2.0.4
 // @description  Safari 专用 AI 页面总结工具，Readability 提取正文, 毛玻璃UI, 支持暗黑模式, 模型 API 动态加载
 // @author       Justin Ye
 // @license      MIT
@@ -115,8 +115,18 @@ const DEFAULT_CONFIG = {
 };
 
 const GM = {
-    setValue: (k, v) => { if (typeof GM_setValue !== 'undefined') GM_setValue(k, v); else localStorage.setItem('safari_pro_' + k, JSON.stringify(v)); },
-    getValue: (k, d) => { if (typeof GM_getValue !== 'undefined') return GM_getValue(k, d); const v = localStorage.getItem('safari_pro_' + k); return v ? JSON.parse(v) : d; }
+    // 多通道取/存：GM_setValue(旧) → GM.setValue(Tampermonkey v5+) → localStorage(兜底)
+    setValue(k, v) {
+        try { if (typeof GM_setValue !== 'undefined') { GM_setValue(k, v); return; } } catch (e) {}
+        try { if (typeof GM !== 'undefined' && typeof GM.setValue === 'function') { GM.setValue(k, v); return; } } catch (e) {}
+        try { localStorage.setItem('saspro_' + k, JSON.stringify(v)); } catch (e) {}
+    },
+    getValue(k, d) {
+        try { if (typeof GM_getValue !== 'undefined') return GM_getValue(k, d); } catch (e) {}
+        try { if (typeof GM !== 'undefined' && typeof GM.getValue === 'function') { const g = GM.getValue(k, d); return g; } } catch (e) {}
+        try { const v = localStorage.getItem('saspro_' + k); return v ? JSON.parse(v) : d; } catch (e) {}
+        return d;
+    }
 };
 
 let config = Object.assign({}, DEFAULT_CONFIG);
@@ -272,7 +282,6 @@ function renderPanel() {
             <button class="sas-btn" id="sas-go">开始总结</button>
             <span class="sas-spacer"></span>
             <button class="sas-btn sec sm" id="sas-copy">复制</button>
-            <button class="sas-btn sec sm" id="sas-newtab">新标签</button>
         </div>`;
 
     panel.querySelector('#sas-close').onclick = () => { closePanel(); };
@@ -280,7 +289,6 @@ function renderPanel() {
     panel.querySelector('#sas-save').onclick = saveSettings;
     panel.querySelector('#sas-go').onclick = startSummary;
     panel.querySelector('#sas-copy').onclick = copyResult;
-    panel.querySelector('#sas-newtab').onclick = openInNewTab;
     panel.querySelector('#sas-refresh').onclick = refreshModels;
 
     document.getElementById('sas-shortcut').addEventListener('keydown', e => {
@@ -315,39 +323,6 @@ function saveSettings() {
 function copyResult() {
     const txt = lastMarkdown || (document.getElementById('sas-result') ? document.getElementById('sas-result').innerText : '');
     navigator.clipboard.writeText(txt).then(() => alert('已复制')).catch(() => alert('复制失败'));
-}
-function openInNewTab() {
-    if (!lastMarkdown) return alert('暂无结果');
-    // 自包含 HTML：新窗口内联 marked + 渲染 + 毛玻璃风样式（避免 text/markdown 空白）
-    const doc = `<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">
-<title>AI 总结 - ${esc(document.title || '')}</title>
-<style>
-body{margin:0;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;color:#1d1d1f;display:flex;justify-content:center;}
-.wrap{max-width:760px;width:100%;padding:40px 24px;}
-.card{background:#fff;border-radius:16px;box-shadow:0 8px 32px rgba(31,38,135,.12);backdrop-filter:blur(20px);padding:32px 36px;line-height:1.75;font-size:15px;}
-.card h1,.card h2,.card h3{font-weight:600;line-height:1.3;margin:1.4em 0 .7em;}
-.card h1,.card h2{font-size:1.4em;}
-.card blockquote{margin:1em 0;padding:.8em 1.2em;border-left:4px solid #007AFF;border-radius:6px;background:rgba(0,122,255,.06);color:#666;font-style:italic;}
-.card code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:.9em;background:rgba(128,128,128,.12);border-radius:4px;padding:.15em .4em;color:#007AFF;}
-.card pre{background:#282c34;border-radius:8px;padding:1.2em;overflow-x:auto;}
-.card pre code{background:none;padding:0;color:#e6e6e6;}
-.card table{border-collapse:collapse;width:100%;margin:1em 0;}
-.card th,.card td{border:1px solid #ddd;padding:8px 12px;font-size:14px;}
-.card th{background:#f0f0f0;}
-.copy{position:fixed;top:16px;right:20px;background:#007AFF;color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:14px;}
-.copy:hover{background:#0a6fe0;}
-@media(prefers-color-scheme:dark){body{background:#1c1c1e;color:#f5f5f7}.card{background:#2c2c2e;color:#f5f5f7}.card th{background:#3a3a3c}.card th,.card td{border-color:#444}.card blockquote{background:rgba(10,132,255,.12)}}
-</style></head><body>
-<div class="wrap"><div class="card" id="content">加载中…</div></div>
-<button class="copy" onclick="cp()">复制</button>
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"><\/script>
-<script>
-const MD = ${JSON.stringify(lastMarkdown)};
-document.getElementById('copy').innerHTML = marked.parse(MD);
-function cp(){ navigator.clipboard.writeText(MD).then(()=>alert('已复制')).catch(()=>alert('复制失败')); }
-<\/script></body></html>`;
-    const w = window.open('', '_blank');
-    if (w) { w.document.write(doc); w.document.close(); }
 }
 
 async function startSummary() {
