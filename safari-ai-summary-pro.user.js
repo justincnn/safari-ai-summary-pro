@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Safari AI Summary Pro
 // @namespace    http://tampermonkey.net/
-// @version      2.1.0
+// @version      2.1.1
 // @description  Safari 专用 AI 页面总结工具，Readability 提取正文, 毛玻璃UI, 支持暗黑模式, 模型 API 动态加载
 // @author       Justin Ye
 // @license      MIT
@@ -114,9 +114,10 @@ const DEFAULT_CONFIG = {
     shortcut: 'Alt+S'
 };
 
-const GM = {
-    // 存储双通道：GM(管理器私有存储，跨站点/跨关闭持久) + localStorage(同步兜底)
-    // 管理器存储是异步的(GM.get/set 返回 Promise，Userscripts/Tampermonkey 皆然)，故用 async。
+// ---------- 配置存储 ----------
+// 关键：本对象命名避开全局 GM（Userscripts/Tampermonkey 注入的 GM 对象），
+// 否则 const GM 会在本作用域遮蔽真正的 GM，GM.getValue/setValue 永远调到这个假对象而失效。
+const store = {
     async setValue(k, v) {
         let gmOk = false;
         try { if (typeof GM_setValue !== 'undefined') { GM_setValue(k, v); gmOk = true; } } catch (e) {}
@@ -125,19 +126,17 @@ const GM = {
         return gmOk;
     },
     async getValue(k, d) {
-        // 先读管理器存储(GM.get 异步 / GM_getValue 同步)；失败再读 localStorage；再不行回默认
         try { if (typeof GM_getValue !== 'undefined') { const v = GM_getValue(k, d); if (v !== undefined && v !== null && v !== d) return v; } } catch (e) {}
         try { if (typeof GM !== 'undefined' && typeof GM.getValue === 'function') { const v = await GM.getValue(k, d); if (v !== undefined && v !== null && v !== d) return v; } } catch (e) {}
         try { const v = localStorage.getItem('saspro_' + k); if (v !== null) return JSON.parse(v); } catch (e) {}
         return d;
-    },
-    
+    }
 };
 
 async function loadConfig() {
     if (configReady) return;
     const keys = Object.keys(DEFAULT_CONFIG);
-    const results = await Promise.all(keys.map(k => GM.getValue(k, DEFAULT_CONFIG[k])));
+    const results = await Promise.all(keys.map(k => store.getValue(k, DEFAULT_CONFIG[k])));
     keys.forEach((k, i) => { config[k] = results[i]; });
     configReady = true;
 }
@@ -317,7 +316,7 @@ function renderPanel() {
     panel.querySelector('#sas-refresh').onclick = refreshModels;
     // 选中模型即时保存（避免忘点「保存配置」导致重开丢模型）
     document.getElementById('sas-model').addEventListener('change', e => {
-        if (e.target.value) { config.model = e.target.value; GM.setValue('model', e.target.value); }
+        if (e.target.value) { config.model = e.target.value; store.setValue('model', e.target.value); }
     });
 
     document.getElementById('sas-shortcut').addEventListener('keydown', e => {
@@ -346,7 +345,7 @@ async function saveSettings() {
         // 空值保护：apiUrl/apiKey/model/prompt 若输入为空但旧配置有值，保留旧值（避免误存空覆盖）
                 if ((key === 'model' || key === 'apiUrl' || key === 'apiKey' || key === 'prompt') && !val && config[key]) { return; }
         config[key] = val;
-        tasks.push(GM.setValue(key, val));
+        tasks.push(store.setValue(key, val));
     });
     await Promise.allSettled(tasks);
     applyTheme();
@@ -377,7 +376,7 @@ async function startSummary() {
     if (prompt) { config.prompt = prompt; persist.push('prompt'); }
     if (!model && config.model) { model = config.model; if (modelSel) modelSel.value = model; }
     if (model) { config.model = model; persist.push('model'); }
-    if (persist.length) { await Promise.allSettled(persist.map(k => GM.setValue(k, config[k]))); }
+    if (persist.length) { await Promise.allSettled(persist.map(k => store.setValue(k, config[k]))); }
 
     if (!apiUrl) return alert('请先填写 API 地址');
     if (!apiKey) return alert('请先填写 API Key');
@@ -458,7 +457,7 @@ document.addEventListener('keydown', e => {
 
 if (typeof GM_registerMenuCommand !== 'undefined') {
     GM_registerMenuCommand('打开面板', () => openPanel());
-    GM_registerMenuCommand('重置配置', () => { Object.keys(config).forEach(k => { config[k] = DEFAULT_CONFIG[k]; GM.setValue(k, DEFAULT_CONFIG[k]); }); renderPanel(); alert('配置已重置'); });
+    GM_registerMenuCommand('重置配置', () => { Object.keys(config).forEach(k => { config[k] = DEFAULT_CONFIG[k]; store.setValue(k, DEFAULT_CONFIG[k]); }); renderPanel(); alert('配置已重置'); });
 }
 
 // 初始需要触发 renderPanel 的变量存在，但面板在打开时才构建
