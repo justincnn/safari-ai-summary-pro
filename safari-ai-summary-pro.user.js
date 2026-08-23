@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Safari AI Summary Pro
 // @namespace    http://tampermonkey.net/
-// @version      2.0.1
+// @version      2.0.2
 // @description  Safari 专用 AI 页面总结工具，Readability 提取正文, 毛玻璃UI, 支持暗黑模式, 模型 API 动态加载
 // @author       Justin Ye
 // @license      MIT
@@ -228,7 +228,7 @@ function refreshModels() {
 
 function renderPanel() {
     applyTheme();
-    if (!config.apiKey) isSettingsOpen = true;
+    // 设置面板默认隐藏（点⚙或右键悬浮球才展开）
     const title = (document.title || '').length > 24 ? document.title.substring(0, 24) + '…' : (document.title || 'AI 总结');
     const settingsHtml = `
         <div id="sas-settings" style="display:${isSettingsOpen ? 'block' : 'none'}">
@@ -311,8 +311,36 @@ function copyResult() {
 }
 function openInNewTab() {
     if (!lastMarkdown) return alert('暂无结果');
-    const blob = new Blob([lastMarkdown], { type: 'text/markdown' });
-    window.open(URL.createObjectURL(blob), '_blank');
+    // 自包含 HTML：新窗口内联 marked + 渲染 + 毛玻璃风样式（避免 text/markdown 空白）
+    const doc = `<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">
+<title>AI 总结 - ${esc(document.title || '')}</title>
+<style>
+body{margin:0;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;color:#1d1d1f;display:flex;justify-content:center;}
+.wrap{max-width:760px;width:100%;padding:40px 24px;}
+.card{background:#fff;border-radius:16px;box-shadow:0 8px 32px rgba(31,38,135,.12);backdrop-filter:blur(20px);padding:32px 36px;line-height:1.75;font-size:15px;}
+.card h1,.card h2,.card h3{font-weight:600;line-height:1.3;margin:1.4em 0 .7em;}
+.card h1,.card h2{font-size:1.4em;}
+.card blockquote{margin:1em 0;padding:.8em 1.2em;border-left:4px solid #007AFF;border-radius:6px;background:rgba(0,122,255,.06);color:#666;font-style:italic;}
+.card code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:.9em;background:rgba(128,128,128,.12);border-radius:4px;padding:.15em .4em;color:#007AFF;}
+.card pre{background:#282c34;border-radius:8px;padding:1.2em;overflow-x:auto;}
+.card pre code{background:none;padding:0;color:#e6e6e6;}
+.card table{border-collapse:collapse;width:100%;margin:1em 0;}
+.card th,.card td{border:1px solid #ddd;padding:8px 12px;font-size:14px;}
+.card th{background:#f0f0f0;}
+.copy{position:fixed;top:16px;right:20px;background:#007AFF;color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:14px;}
+.copy:hover{background:#0a6fe0;}
+@media(prefers-color-scheme:dark){body{background:#1c1c1e;color:#f5f5f7}.card{background:#2c2c2e;color:#f5f5f7}.card th{background:#3a3a3c}.card th,.card td{border-color:#444}.card blockquote{background:rgba(10,132,255,.12)}}
+</style></head><body>
+<div class="wrap"><div class="card" id="content">加载中…</div></div>
+<button class="copy" onclick="cp()">复制</button>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"><\/script>
+<script>
+const MD = ${JSON.stringify(lastMarkdown)};
+document.getElementById('copy').innerHTML = marked.parse(MD);
+function cp(){ navigator.clipboard.writeText(MD).then(()=>alert('已复制')).catch(()=>alert('复制失败')); }
+<\/script></body></html>`;
+    const w = window.open('', '_blank');
+    if (w) { w.document.write(doc); w.document.close(); }
 }
 
 async function startSummary() {
