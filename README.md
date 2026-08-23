@@ -5,7 +5,28 @@
 > **中文 · English**
 
 ![license](https://img.shields.io/badge/license-MIT-blue)
-![version](https://img.shields.io/badge/version-2.0-blue)
+![version](https://img.shields.io/badge/version-2.0.2-blue)
+
+---
+
+## ⬇️ 一键安装 / Install
+
+> 需要先装一个**用户脚本管理器**（下面两行选其一）。装好后**点击下面的蓝色安装徽标**，即可在 Safari / Chrome / Edge / Firefox 里一键安装或更新本脚本到最新版。
+
+| 浏览器 | 点这里下载管理器 |
+|---|---|
+| **Safari** | [Tampermonkey for Safari](https://www.tampermonkey.net/?browser=safari) 或 [Userscripts](https://apps.apple.com/app/userscripts/id1463298887) |
+| Chrome / Edge / Firefox | [Tampermonkey](https://www.tampermonkey.net/) 或 [Violentmonkey](https://violentmonkey.github.io/) |
+
+### 🔗 点击安装 / 更新（v2.0.2）
+[![安装脚本](https://img.shields.io/badge/▶%20安装%20Safari%20AI%20Summary%20Pro%20v2.0.2-blue?style=for-the-badge)](https://raw.githubusercontent.com/justincnn/safari-ai-summary-pro/main/safari-ai-summary-pro.user.js)
+
+点上面的按钮 → 管理器弹出**「是否安装本脚本」** → 点「安装」。
+
+- **首次安装**：装完刷新任意网页，右下角出现 **＋** 悬浮球。
+- **已经有旧版**：点击后会提示**更新**到最新版（v2.0.2）。
+
+> **Safari (Userscripts)**：若用 Userscripts 而非 Tampermonkey，点击链接后在 Userscripts 面板**新建脚本粘贴源码**保存；或改用 Tampermonkey for Safari 直接点击安装。
 
 ---
 
