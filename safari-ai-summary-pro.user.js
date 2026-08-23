@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Safari AI Summary Pro
 // @namespace    http://tampermonkey.net/
-// @version      2.0.8
+// @version      2.0.9
 // @description  Safari 专用 AI 页面总结工具，Readability 提取正文, 毛玻璃UI, 支持暗黑模式, 模型 API 动态加载
 // @author       Justin Ye
 // @license      MIT
@@ -370,12 +370,14 @@ async function startSummary() {
     // 若输入框为空，把已存配置回填回输入框（避免再次误存空值）
     if (urlInput && !urlInput.value.trim() && config.apiUrl) { urlInput.value = config.apiUrl; }
     if (keyInput && !keyInput.value.trim() && config.apiKey) { keyInput.value = config.apiKey; }
-    // 仅当用户填了非空值才回写 config（空值不得覆盖已存配置）
-    if (apiUrl) config.apiUrl = apiUrl;
-    if (apiKey) config.apiKey = apiKey;
-    if (prompt) config.prompt = prompt;
+    // 仅当用户填了非空值才回写 config 并【落盘 GM 存储】——否则换标签/换站点就丢（关键修复）
+    const persist = [];
+    if (apiUrl) { config.apiUrl = apiUrl; persist.push('apiUrl'); }
+    if (apiKey) { config.apiKey = apiKey; persist.push('apiKey'); }
+    if (prompt) { config.prompt = prompt; persist.push('prompt'); }
     if (!model && config.model) { model = config.model; if (modelSel) modelSel.value = model; }
-    if (model) { config.model = model; GM.setValue('model', model); }
+    if (model) { config.model = model; persist.push('model'); }
+    if (persist.length) { await Promise.allSettled(persist.map(k => GM.setValue(k, config[k]))); }
 
     if (!apiUrl) return alert('请先填写 API 地址');
     if (!apiKey) return alert('请先填写 API Key');
