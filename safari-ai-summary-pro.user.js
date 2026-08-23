@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Safari AI Summary Pro
 // @namespace    http://tampermonkey.net/
-// @version      2.0.7
+// @version      2.0.8
 // @description  Safari 专用 AI 页面总结工具，Readability 提取正文, 毛玻璃UI, 支持暗黑模式, 模型 API 动态加载
 // @author       Justin Ye
 // @license      MIT
@@ -135,9 +135,11 @@ const GM = {
 };
 
 async function loadConfig() {
+    if (configReady) return;
     const keys = Object.keys(DEFAULT_CONFIG);
     const results = await Promise.all(keys.map(k => GM.getValue(k, DEFAULT_CONFIG[k])));
     keys.forEach((k, i) => { config[k] = results[i]; });
+    configReady = true;
 }
 let config = Object.assign({}, DEFAULT_CONFIG);
 
@@ -227,7 +229,7 @@ panel.className = 'sas-glass sas-panel';
 (document.body || document.documentElement).appendChild(panel);
 
 // ---------- 逻辑 ----------
-let isOpen = false, isSettingsOpen = false, lastMarkdown = '';
+let isOpen = false, isSettingsOpen = false, lastMarkdown = '', configReady = false;
 
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 function applyTheme() {
@@ -341,8 +343,8 @@ async function saveSettings() {
     ['sas-api-url', 'sas-api-key', 'sas-model', 'sas-prompt', 'sas-theme', 'sas-shortcut'].forEach(id => {
         const val = document.getElementById(id).value;
         const key = { 'sas-api-url': 'apiUrl', 'sas-api-key': 'apiKey', 'sas-model': 'model', 'sas-prompt': 'prompt', 'sas-theme': 'theme', 'sas-shortcut': 'shortcut' }[id];
-        // 空值保护：若输入为空但旧配置有值，保留旧值（避免刷新未就绪时误存空覆盖）
-        if (key === 'model' && !val && config.model) { return; }
+        // 空值保护：apiUrl/apiKey/model/prompt 若输入为空但旧配置有值，保留旧值（避免误存空覆盖）
+                if ((key === 'model' || key === 'apiUrl' || key === 'apiKey' || key === 'prompt') && !val && config[key]) { return; }
         config[key] = val;
         tasks.push(GM.setValue(key, val));
     });
@@ -357,13 +359,23 @@ function copyResult() {
 }
 
 async function startSummary() {
+    await loadConfig();  // 确保已加载保存的配置，避免竞态读到空
     const urlInput = document.getElementById('sas-api-url'), keyInput = document.getElementById('sas-api-key'),
           modelSel = document.getElementById('sas-model'), promptTextarea = document.getElementById('sas-prompt'), resultArea = document.getElementById('sas-result'), goBtn = document.getElementById('sas-go');
-    const apiUrl = urlInput.value.trim(); const apiKey = keyInput.value.trim(); let model = modelSel.value; const prompt = promptTextarea.value;
-    config.apiUrl = apiUrl; config.apiKey = apiKey;
-    // 若下拉框被刷新逻辑清空但用户已保存过模型，直接回退使用已存模型
-    if (!model && config.model) { model = config.model; modelSel.value = model; }
-    if (model) config.model = model, GM.setValue('model', model);
+    // 优先用 DOM 值，其次回退已存 config（面板可能因异步竞态未用 config 填充）
+    const apiUrl = urlInput ? urlInput.value.trim() || config.apiUrl : config.apiUrl;
+    const apiKey = keyInput ? keyInput.value.trim() || config.apiKey : config.apiKey;
+    let model = modelSel ? modelSel.value : config.model;
+    const prompt = promptTextarea ? promptTextarea.value : config.prompt;
+    // 若输入框为空，把已存配置回填回输入框（避免再次误存空值）
+    if (urlInput && !urlInput.value.trim() && config.apiUrl) { urlInput.value = config.apiUrl; }
+    if (keyInput && !keyInput.value.trim() && config.apiKey) { keyInput.value = config.apiKey; }
+    // 仅当用户填了非空值才回写 config（空值不得覆盖已存配置）
+    if (apiUrl) config.apiUrl = apiUrl;
+    if (apiKey) config.apiKey = apiKey;
+    if (prompt) config.prompt = prompt;
+    if (!model && config.model) { model = config.model; if (modelSel) modelSel.value = model; }
+    if (model) { config.model = model; GM.setValue('model', model); }
 
     if (!apiUrl) return alert('请先填写 API 地址');
     if (!apiKey) return alert('请先填写 API Key');
