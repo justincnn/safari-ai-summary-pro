@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Safari AI Summary Pro
 // @namespace    http://tampermonkey.net/
-// @version      2.0.6
+// @version      2.0.7
 // @description  Safari 专用 AI 页面总结工具，Readability 提取正文, 毛玻璃UI, 支持暗黑模式, 模型 API 动态加载
 // @author       Justin Ye
 // @license      MIT
@@ -313,6 +313,10 @@ function renderPanel() {
     panel.querySelector('#sas-go').onclick = startSummary;
     panel.querySelector('#sas-copy').onclick = copyResult;
     panel.querySelector('#sas-refresh').onclick = refreshModels;
+    // 选中模型即时保存（避免忘点「保存配置」导致重开丢模型）
+    document.getElementById('sas-model').addEventListener('change', e => {
+        if (e.target.value) { config.model = e.target.value; GM.setValue('model', e.target.value); }
+    });
 
     document.getElementById('sas-shortcut').addEventListener('keydown', e => {
         e.preventDefault(); e.stopPropagation();
@@ -337,6 +341,8 @@ async function saveSettings() {
     ['sas-api-url', 'sas-api-key', 'sas-model', 'sas-prompt', 'sas-theme', 'sas-shortcut'].forEach(id => {
         const val = document.getElementById(id).value;
         const key = { 'sas-api-url': 'apiUrl', 'sas-api-key': 'apiKey', 'sas-model': 'model', 'sas-prompt': 'prompt', 'sas-theme': 'theme', 'sas-shortcut': 'shortcut' }[id];
+        // 空值保护：若输入为空但旧配置有值，保留旧值（避免刷新未就绪时误存空覆盖）
+        if (key === 'model' && !val && config.model) { return; }
         config[key] = val;
         tasks.push(GM.setValue(key, val));
     });
@@ -357,6 +363,7 @@ async function startSummary() {
     config.apiUrl = apiUrl; config.apiKey = apiKey;
     // 若下拉框被刷新逻辑清空但用户已保存过模型，直接回退使用已存模型
     if (!model && config.model) { model = config.model; modelSel.value = model; }
+    if (model) config.model = model, GM.setValue('model', model);
 
     if (!apiUrl) return alert('请先填写 API 地址');
     if (!apiKey) return alert('请先填写 API Key');
