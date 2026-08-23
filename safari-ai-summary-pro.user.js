@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Safari AI Summary Pro
 // @namespace    http://tampermonkey.net/
-// @version      2.0
+// @version      2.0.1
 // @description  Safari 专用 AI 页面总结工具，Readability 提取正文, 毛玻璃UI, 支持暗黑模式, 模型 API 动态加载
 // @author       Justin Ye
 // @license      MIT
@@ -43,7 +43,10 @@ function gmFetch(url, options) {
                         status: r.status
                     });
                 } else {
-                    reject(new Error(`HTTP ${r.status} ${r.statusText || ''}`));
+                    // 尽量提取网关返回的具体原因，便于排查 403/401
+                    let detail = '';
+                    try { const j = JSON.parse(r.responseText); detail = (j.error && (j.error.message || j.error.code)) || j.message || ''; } catch (e) { detail = (r.responseText || '').slice(0, 200); }
+                    reject(new Error(`HTTP ${r.status}${detail ? '：' + detail : ''}`));
                 }
             },
             onerror: () => reject(new Error('网络错误：无法连接服务器')),
