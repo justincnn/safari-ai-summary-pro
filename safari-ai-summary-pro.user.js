@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Safari AI Summary Pro
 // @namespace    http://tampermonkey.net/
-// @version      2.0.5
+// @version      2.0.6
 // @description  Safari 专用 AI 页面总结工具，Readability 提取正文, 毛玻璃UI, 支持暗黑模式, 模型 API 动态加载
 // @author       Justin Ye
 // @license      MIT
@@ -246,10 +246,24 @@ function refreshModels() {
         .then(r => r.json())
         .then(data => {
             const ids = (data.data || []).map(m => m && m.id).filter(Boolean);
-            if (!ids.length) { sel.innerHTML = '<option value="">未返回模型</option>'; return; }
-            sel.innerHTML = ['<option value="">请选择模型</option>', ...ids.map(id => `<option value="${esc(id)}" ${id === config.model ? 'selected' : ''}>${esc(id)}</option>`)].join('');
+            // 始终保留用户已保存的模型为首选项（即使不在服务端返回列表），避免刷新后丢选择
+            const opts = [];
+            if (config.model && ids.indexOf(config.model) === -1) opts.push(`<option value="${esc(config.model)}" selected>${esc(config.model)}</option>`);
+            if (!ids.length) {
+                if (!opts.length) opts.push('<option value="">未返回模型</option>');
+                sel.innerHTML = opts.join('');
+                return;
+            }
+            opts.push('<option value="">请选择模型</option>');
+            ids.forEach(id => opts.push(`<option value="${esc(id)}" ${id === config.model ? 'selected' : ''}>${esc(id)}</option>`));
+            sel.innerHTML = opts.join('');
         })
-        .catch(() => { sel.innerHTML = '<option value="">模型加载失败（检查 API 地址/Key）</option>'; });
+        .catch(() => {
+            // 刷新失败：若用户已存模型则保留，否则提示
+            sel.innerHTML = config.model
+                ? `<option value="${esc(config.model)}" selected>${esc(config.model)}</option>`
+                : '<option value="">模型加载失败（检查 API 地址/Key）</option>';
+        });
 }
 
 function renderPanel() {
@@ -339,8 +353,10 @@ function copyResult() {
 async function startSummary() {
     const urlInput = document.getElementById('sas-api-url'), keyInput = document.getElementById('sas-api-key'),
           modelSel = document.getElementById('sas-model'), promptTextarea = document.getElementById('sas-prompt'), resultArea = document.getElementById('sas-result'), goBtn = document.getElementById('sas-go');
-    const apiUrl = urlInput.value.trim(); const apiKey = keyInput.value.trim(); const model = modelSel.value; const prompt = promptTextarea.value;
+    const apiUrl = urlInput.value.trim(); const apiKey = keyInput.value.trim(); let model = modelSel.value; const prompt = promptTextarea.value;
     config.apiUrl = apiUrl; config.apiKey = apiKey;
+    // 若下拉框被刷新逻辑清空但用户已保存过模型，直接回退使用已存模型
+    if (!model && config.model) { model = config.model; modelSel.value = model; }
 
     if (!apiUrl) return alert('请先填写 API 地址');
     if (!apiKey) return alert('请先填写 API Key');
