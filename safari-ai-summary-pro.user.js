@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Safari AI Summary Pro
 // @namespace    http://tampermonkey.net/
-// @version      2.0.2
+// @version      2.0.3
 // @description  Safari 专用 AI 页面总结工具，Readability 提取正文, 毛玻璃UI, 支持暗黑模式, 模型 API 动态加载
 // @author       Justin Ye
 // @license      MIT
@@ -17,13 +17,6 @@
 
 (function () {
 'use strict';
-
-// 兼容性处理：获取正确的 window 对象（marked/Readability 需在页面 context）
-let targetWindow = window;
-try {
-    if (typeof unsafeWindow !== 'undefined') targetWindow = unsafeWindow;
-    else if (window.unsafeWindow) targetWindow = window.unsafeWindow;
-} catch (e) {}
 
 // ---------- 工具 ----------
 
@@ -55,27 +48,6 @@ function gmFetch(url, options) {
     });
 }
 
-// 懒加载外部 JS 注入页面 context (marked / highlight)
-function loadScriptInPage(src) {
-    return new Promise((resolve, reject) => {
-        if (document.querySelector(`script[src="${src}"]`)) return resolve();
-        const s = document.createElement('script');
-        s.src = src;
-        s.onload = resolve;
-        s.onerror = () => reject(new Error('资源加载失败: ' + src));
-        document.head.appendChild(s);
-    });
-}
-
-let markedLoaded = false;
-async function loadMarked() {
-    if (markedLoaded) return;
-    if (typeof targetWindow.marked !== 'undefined') { markedLoaded = true; return; }
-    await loadScriptInPage('https://cdn.jsdelivr.net/npm/marked/marked.min.js');
-    if (targetWindow.marked) targetWindow.marked.setOptions({ breaks: true, gfm: true });
-    markedLoaded = true;
-}
-
 // 提取正文：优先主要内容容器，剔除杂项，长度受限
 function extractMainText() {
     const sel = 'article, [role="main"], main, #content, .post-content, .entry-content, .prose, .article-content';
@@ -88,6 +60,41 @@ function extractMainText() {
 }
 
 // ---------- 配置 ----------
+
+// 轻量 Markdown 渲染（纯函数，零外部依赖，Safari Userscripts 也可靠）
+// 覆盖本脚本总结输出用到的语法：标题/粗体/斜体/列表/引述/代码/表格/换行
+function escapes(md) { return String(md).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function renderMd(md) {
+    let src = escapes(md == null ? '' : md);
+    // 分割代码块保护
+    const blocks = [];
+    src = src.replace(/```(\w*)\n([\s\S]*?)```/g, (m, lang, code) => {
+        blocks.push('<pre><code>' + code + '</code></pre>');
+        return '\u0000' + (blocks.length - 1) + '\u0000';
+    });
+    src = src.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+    const lines = src.split('\n');
+    let html = '', listOpen = false, quoteOpen = false;
+    const closeList = () => { if (listOpen) { html += '</ul>'; listOpen = false; } };
+    const closeQuote = () => { if (quoteOpen) { html += '</blockquote>'; quoteOpen = false; } };
+    for (let raw of lines) {
+        const line = raw.replace(/\s+$/, '');
+        const block = line.match(/^\u0000(\d+)\u0000$/);
+        if (block) { closeList(); closeQuote(); html += blocks[+block[1]]; continue; }
+        const h = line.match(/^(#{1,4})\s+(.*)$/);
+        if (h) { closeList(); closeQuote(); const lv = h[1].length; html += '<h' + lv + '>' + h[2] + '</h' + lv + '>'; continue; }
+        if (/^\s*([-*•])\s+/.test(line)) { closeQuote(); if (!listOpen) { html += '<ul>'; listOpen = true; } html += '<li>' + line.replace(/^\s*[-*•]\s+/, '') + '</li>'; continue; }
+        if (/^\s*>\s?/.test(line)) { closeList(); if (!quoteOpen) { html += '<blockquote>'; quoteOpen = true; } html += line.replace(/^\s*>\s?/, '') + '<br>'; continue; }
+        if (/^\s*\|.*\|\s*$/.test(line)) { closeList(); closeQuote(); html += line; continue; }
+        closeList(); closeQuote();
+        const trimmed = line.trim();
+        if (!trimmed) { html += '<p></p>'; continue; }
+        html += '<p>' + trimmed + '</p>';
+    }
+    closeList(); closeQuote();
+    // 行内：**加粗** *斜体*
+    return html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+}
 
 const NEW_PROMPT = `你是一个专业的中文内容总结器。你的任务是分析提供的网页内容，**识别内容类型（例如：新闻报道、研究报告、普通文章、市场分析等）**，并在此基础上创建一个清晰、简洁、结构良好的中文总结。**总结必须严格依据原文内容，不得进行任何推测、假设或添加原文中未包含的信息。**
 
@@ -359,7 +366,6 @@ async function startSummary() {
     try {
         const pageContent = extractMainText();
         if (!pageContent) throw new Error('未能提取到页面正文');
-        await loadMarked();
         const r = await gmFetch(apiUrl.replace(/\/+$/, '') + '/chat/completions', {
             method: 'POST', timeout: 120000,
             headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
@@ -369,8 +375,7 @@ async function startSummary() {
         const content = data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message.content : null;
         if (!content) throw new Error('API 返回异常（无内容）');
         lastMarkdown = content.replace(/^```(markdown)?\s*/i, '').replace(/\s*```$/, '');
-        const parse = targetWindow.marked ? targetWindow.marked.parse : t => t;
-        resultArea.innerHTML = parse(lastMarkdown);
+        resultArea.innerHTML = renderMd(lastMarkdown);
     } catch (err) {
         console.error(err);
         resultArea.innerHTML = `<p class="sas-error">出错啦: ${esc(err.message || '未知错误')}</p>`;
