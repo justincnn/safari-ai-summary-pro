@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         Safari AI Summary Pro
 // @namespace    http://tampermonkey.net/
-// @version      2.1.1
+// @version      2.2.0
 // @description  Safari 专用 AI 页面总结工具，Readability 提取正文, 毛玻璃UI, 支持暗黑模式, 模型 API 动态加载
 // @author       Justin Ye
 // @license      MIT
 // @match        *://*/*
+// @noframes
 // @grant        GM.setValue
 // @grant        GM.getValue
 // @grant        GM_xmlhttpRequest
@@ -17,6 +18,10 @@
 
 (function () {
 'use strict';
+
+// 仅在顶层 frame 运行（配合 @noframes 双保险）：ip111.cn 等页面含大量 iframe，
+// 若不在顶层则直接返回，避免每个 iframe 都注入悬浮球 → 多图标
+if (window.self !== window.top) return;
 
 // ---------- 工具 ----------
 
@@ -170,9 +175,9 @@ style.textContent = `
 [data-theme="dark"]{--glass-bg:rgba(30,30,32,0.78);--text-primary:#f5f5f7;--text-secondary:#98989d;--input-bg:rgba(0,0,0,0.3);--hl-bg:rgba(255,255,255,0.08);}
 
 .sas-glass{background:var(--glass-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--glass-border);box-shadow:var(--glass-shadow);color:var(--text-primary);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
-.sas-fab{position:fixed;right:24px;bottom:24px;z-index:2147483647;width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;user-select:none;transition:transform .2s;}
-.sas-fab:hover{transform:scale(1.08);}
-.sas-fab:active{transform:scale(.95);}
+.sas-fab{position:fixed;right:24px;bottom:24px;z-index:2147483647;width:38px;height:38px;border-radius:13px;display:flex;align-items:center;justify-content:center;cursor:pointer;user-select:none;transition:transform .18s cubic-bezier(.2,.8,.2,1),box-shadow .18s;box-shadow:0 4px 16px rgba(0,0,0,.12);}
+.sas-fab:hover{transform:translateY(-1px) scale(1.05);box-shadow:0 6px 22px rgba(0,0,0,.16);}
+.sas-fab:active{transform:scale(.94);}
 .sas-panel{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) scale(.96);z-index:2147483647;width:92%;max-width:640px;max-height:86vh;border-radius:var(--radius-lg);display:flex;flex-direction:column;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;overflow:hidden;}
 .sas-panel.show{opacity:1;pointer-events:auto;transform:translate(-50%,-50%) scale(1);}
 .sas-header{padding:16px 20px;border-bottom:1px solid var(--glass-border);display:flex;justify-content:space-between;align-items:center;font-weight:600;font-size:17px;}
@@ -217,10 +222,13 @@ style.textContent = `
 document.head.appendChild(style);
 
 // ---------- DOM ----------
+// 单例守卫：若悬浮球已存在（理论上被 @noframes + top 检查挡住，双保险）则不重复创建
+if (document.querySelector('.sas-fab')) return;
 const fab = document.createElement('div');
 fab.className = 'sas-glass sas-fab';
 fab.title = 'AI 页面总结 (右键设置)';
-fab.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="3" fill="currentColor" opacity=".15"/><path d="M12 7v10M7 12h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+// macOS SF Symbols "wand.and.stars" 风格：细线魔杖 + 星光，更精致小巧
+fab.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18l-1.2 1.2a1.4 1.4 0 0 1-2-2L8 13" opacity=".55"/><path d="M8 8l8 8L4 20l-3-7 7-8z" opacity=".95"/><path d="M9 3l.5 1.5L11 5l-1.5.5L9 7l-.5-1.5L7 5l1.5-.5L9 3z" fill="currentColor" stroke="none"/><path d="M20 4l.6 1.8L22.5 6.5l-1.9.7L20 9l-.6-1.8L17.5 6.5l1.9-.7L20 4z" fill="currentColor" stroke="none"/></svg>`;
 (document.body || document.documentElement).appendChild(fab);
 
 const panel = document.createElement('div');
